@@ -9,6 +9,9 @@ from typing import List, Optional
 import asyncio
 import uvicorn
 import json
+import webbrowser
+import threading
+import time
 
 from config import *
 from controllers.simulator_controller import SimulatorController
@@ -310,6 +313,11 @@ async def broadcast_log(level: str, message: str):
 
 # ==================== 서버 시작 ====================
 
+def open_browser():
+    """서버 시작 후 브라우저 자동 실행"""
+    time.sleep(1.5)  # 서버 시작 대기
+    webbrowser.open(f'http://localhost:{SERVER_PORT}')
+
 if __name__ == "__main__":
     print(f"""
 ╔══════════════════════════════════════════════════════════╗
@@ -319,6 +327,9 @@ if __name__ == "__main__":
 ╚══════════════════════════════════════════════════════════╝
     """)
     
+    # 브라우저 자동 실행 (별도 스레드)
+    threading.Thread(target=open_browser, daemon=True).start()
+    
     # WebSocket 서버는 별도 포트에서 실행
     uvicorn.run(
         app,
@@ -326,3 +337,4 @@ if __name__ == "__main__":
         port=SERVER_PORT,
         log_level="info"
     )
+

@@ -39,7 +39,7 @@ env/
 
 # PyInstaller
 *.manifest
-*.spec
+# *.spec  # 주석 처리: 빌드 설정 파일로 사용
 
 # Installer logs
 pip-log.txt
