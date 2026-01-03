@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR 추락 시뮬레이터 컨트롤러</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body>
+    <!-- 테스트 모드 배지 -->
+    <div id="testModeBadge" class="test-mode-badge" style="display: none;">
+        ⚠️ 테스트 모드
+    </div>
+
+    <!-- 헤더 -->
+    <div class="header">
+        <h1>🎯 VR 추락 시뮬레이터</h1>
+        <p class="subtitle">안전 체험 제어 시스템</p>
+    </div>
+
+    <!-- 메인 컨테이너 -->
+    <div class="container">
+        <!-- 상단 그리드 -->
+        <div class="grid">
+            <!-- 시뮬레이터 제어 패널 -->
+            <div class="panel glass">
+                <div class="panel-header">
+                    <div class="panel-icon">⚙️</div>
+                    <h2 class="panel-title">시뮬레이터 연결</h2>
+                </div>
+
+                <div class="mb-2">
+                    <div id="simulatorStatus" class="status-indicator status-waiting">
+                        <span class="status-dot"></span>
+                        <span>대기 중</span>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">시뮬레이터 IP</label>
+                    <input type="text" id="simulatorIp" class="input-field" placeholder="192.168.1.200"
+                        value="192.168.1.200">
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">포트</label>
+                    <input type="number" id="simulatorPort" class="input-field" placeholder="9000" value="9000">
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="connectSimulator()">
+                        🔌 연결
+                    </button>
+                    <button class="btn btn-secondary" onclick="scanSimulator()">
+                        🔍 스캔
+                    </button>
+                    <button class="btn btn-danger" onclick="disconnectSimulator()">
+                        ⛔ 연결 해제
+                    </button>
+                </div>
+            </div>
+
+            <!-- 체험 제어 패널 -->
+            <div class="panel glass">
+                <div class="panel-header">
+                    <div class="panel-icon">🎮</div>
+                    <h2 class="panel-title">체험 제어</h2>
+                </div>
+
+                <div class="button-group-vertical">
+                    <button class="btn btn-success w-full" onclick="startExperience()">
+                        ▶️ 체험 시작
+                    </button>
+                </div>
+
+                <div class="mt-2">
+                    <label class="input-label">시뮬레이터 제어 모드</label>
+                    <div class="mode-toggle">
+                        <button class="mode-option active" id="autoModeBtn" onclick="setControlMode('auto')">
+                            자동
+                        </button>
+                        <button class="mode-option" id="manualModeBtn" onclick="setControlMode('manual')">
+                            수동
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 수동 제어 (기본 숨김) -->
+                <div id="manualControls" style="display: none;">
+                    <div class="glass-light" style="padding: 1rem; margin-top: 1rem;">
+                        <!-- 엘리베이터 상승 -->
+                        <div class="flex items-center gap-2 mb-2">
+                            <div style="max-width: 100px;">
+                                <label class="input-label" style="margin-bottom: 0.25rem;">상승 (초)</label>
+                                <input type="number" id="elevatorTime" class="input-field" placeholder="5" value="5"
+                                    style="margin-bottom: 0;">
+                            </div>
+                            <button class="btn btn-warning" onclick="sendElevatorUp()"
+                                style="align-self: flex-end; flex: 1;">
+                                ⬆️ 상승
+                            </button>
+                        </div>
+
+                        <!-- 추락 -->
+                        <div class="flex items-center gap-2">
+                            <div style="max-width: 100px;">
+                                <label class="input-label" style="margin-bottom: 0.25rem;">추락 (초)</label>
+                                <input type="number" id="fallTime" class="input-field" placeholder="3" value="3"
+                                    style="margin-bottom: 0;">
+                            </div>
+                            <button class="btn btn-danger" onclick="sendFall()" style="align-self: flex-end; flex: 1;">
+                                ⬇️ 추락
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="button-group mt-2">
+                    <button class="btn btn-warning" onclick="pauseExperience()">
+                        ⏸️ 일시정지
+                    </button>
+                    <button class="btn btn-primary" onclick="resumeExperience()">
+                        ⏯️ 재개
+                    </button>
+                    <button class="btn btn-danger" onclick="stopExperience()">
+                        ⏹️ 종료
+                    </button>
+                </div>
+            </div>
+
+            <!-- 피코 디바이스 제어 패널 -->
+            <div class="panel glass">
+                <div class="panel-header">
+                    <div class="panel-icon">📱</div>
+                    <h2 class="panel-title">피코 디바이스 제어</h2>
+                    <button class="btn btn-success" onclick="installApkToDevices()" title="APK 설치">
+                        📥 APK 설치
+                    </button>
+                    <button class="btn btn-secondary" onclick="scanDevices()">
+                        🔄 스캔
+                    </button>
+                </div>
+
+                <!-- 디바이스 목록 -->
+                <div class="device-list" id="deviceList">
+                    <div class="text-center" style="padding: 2rem; color: var(--gray-400);">
+                        디바이스를 스캔하세요
+                    </div>
+                </div>
+
+                <!-- 간소화된 제어 버튼 -->
+                <div class="input-group">
+                    <label class="input-label">패키지 이름</label>
+                    <input type="text" id="packageName" class="input-field" placeholder="com.safety.vrfall"
+                        value="com.safety.vrfall">
+                </div>
+
+                <div class="button-group mt-2">
+                    <button class="btn btn-danger" onclick="uninstallApk()" title="APK 삭제">
+                        🗑️ 삭제
+                    </button>
+                    <button class="btn btn-primary" onclick="launchApp()" title="앱 실행">
+                        ▶️ 실행
+                    </button>
+                    <button class="btn btn-warning" onclick="stopApp()" title="앱 종료">
+                        ⏹️ 종료
+                    </button>
+                    <button class="btn btn-danger" onclick="rebootDevices()" title="디바이스 재부팅">
+                        🔄 재부팅
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 로그 윈도우 -->
+        <div class="panel glass log-panel">
+            <div class="panel-header">
+                <div class="panel-icon">📝</div>
+                <h2 class="panel-title">시스템 로그</h2>
+                <button class="btn btn-secondary" onclick="clearLogs()">
+                    🗑️ 로그 지우기
+                </button>
+            </div>
+
+            <div class="log-window" id="logWindow">
+                <div class="log-entry">
+                    <span class="log-time">00:00:00</span>
+                    <span class="log-message log-info">시스템 시작됨</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+
+</html>
