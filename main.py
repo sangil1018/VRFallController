@@ -2,6 +2,22 @@
 FastAPI 백엔드 서버
 VR 추락 시뮬레이터 컨트롤러 웹 앱
 """
+# UTF-8 인코딩 설정 (한글 에러 메시지 처리를 위해)
+import sys
+import os
+
+# 환경 변수를 가장 먼저 설정 (uvicorn 로깅에도 적용되도록)
+if sys.platform == 'win32':
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    os.environ['PYTHONLEGACYWINDOWSSTDIO'] = '0'
+    
+    # Windows에서 UTF-8 인코딩 강제 설정
+    import io
+    if sys.stdout is not None and hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    if sys.stderr is not None and hasattr(sys.stderr, 'buffer'):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -12,6 +28,10 @@ import json
 import webbrowser
 import threading
 import time
+from pathlib import Path
+import signal
+import atexit
+import subprocess
 
 from config import *
 from controllers.simulator_controller import SimulatorController
@@ -19,11 +39,105 @@ from controllers.experience_controller import ExperienceController
 from controllers.adb_controller import ADBController
 from utils.logger import Logger
 
+
+def safe_print(*args, **kwargs):
+    """UTF-8 인코딩 에러를 방지하는 안전한 print 함수"""
+    try:
+        print(*args, **kwargs)
+    except UnicodeEncodeError:
+        # UTF-8로 인코딩 후 출력
+        try:
+            message = ' '.join(str(arg) for arg in args)
+            if sys.stdout and hasattr(sys.stdout, 'buffer'):
+                sys.stdout.buffer.write(message.encode('utf-8'))
+                sys.stdout.buffer.write(b'\n')
+                sys.stdout.buffer.flush()
+        except:
+            # 최후의 수단: 모든 한글을 제거하고 출력
+            pass
+
+
+def cleanup_port(port=8000):
+    """프로그램 종료 시 포트를 사용 중인 프로세스 종료"""
+    try:
+        # Windows에서 포트를 사용하는 프로세스 찾기
+        result = subprocess.run(
+            f'netstat -ano | findstr :{port}',
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.stdout:
+            # PID 추출 및 프로세스 종료
+            lines = result.stdout.strip().split('\n')
+            pids = set()
+            for line in lines:
+                parts = line.split()
+                if len(parts) >= 5:
+                    pid = parts[-1]
+                    if pid.isdigit():
+                        pids.add(pid)
+            
+            # 각 PID 종료
+            for pid in pids:
+                try:
+                    subprocess.run(f'taskkill /F /PID {pid}', shell=True, capture_output=True)
+                    safe_print(f"Port {port} process (PID: {pid}) terminated")
+                except:
+                    pass
+    except Exception as e:
+        safe_print(f"Port cleanup error: {e}")
+
+
+def signal_handler(signum, frame):
+    """시그널 핸들러"""
+    safe_print("\nShutting down...")
+    cleanup_port(SERVER_PORT)
+    sys.exit(0)
+
+
+# 프로그램 종료 시 자동으로 포트 정리
+atexit.register(cleanup_port, SERVER_PORT)
+signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+signal.signal(signal.SIGTERM, signal_handler)  # 종료 시그널
+
+
+def get_base_path():
+    """PyInstaller 실행 파일 또는 개발 환경에서의 기본 경로 반환"""
+    if getattr(sys, 'frozen', False):
+        # PyInstaller로 빌드된 실행 파일
+        return Path(sys._MEIPASS)
+    else:
+        # 개발 환경 (소스 코드에서 직접 실행)
+        return Path(__file__).parent
+
+
+def setup_console_for_frozen():
+    """PyInstaller 실행 파일에서 콘솔 출력 설정 (console=False 모드 대응)"""
+    if getattr(sys, 'frozen', False):
+        # stdout/stderr가 None인 경우 더미 스트림으로 대체
+        if sys.stdout is None:
+            sys.stdout = open(os.devnull, 'w')
+        if sys.stderr is None:
+            sys.stderr = open(os.devnull, 'w')
+        if sys.stdin is None:
+            sys.stdin = open(os.devnull, 'r')
+
+
+# PyInstaller frozen 모드 설정
+setup_console_for_frozen()
+
+
+# 기본 경로 설정
+BASE_PATH = get_base_path()
+STATIC_PATH = BASE_PATH / "static"
+
 # FastAPI 앱 초기화
 app = FastAPI(title="VR Fall Simulator Controller")
 
 # 정적 파일 서빙
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_PATH)), name="static")
 
 # 컨트롤러 초기화
 logger = Logger()
@@ -38,13 +152,24 @@ active_connections: List[WebSocket] = []
 @app.get("/")
 async def root():
     """메인 페이지 제공"""
-    return FileResponse("static/index.html")
+    return FileResponse(str(STATIC_PATH / "index.html"))
 
 
 @app.get("/api/test_mode")
 async def get_test_mode():
     """테스트 모드 상태 확인"""
     return {"enabled": TEST_MODE}
+
+
+@app.get("/api/config")
+async def get_config():
+    """설정 값 가져오기"""
+    return {
+        "package_name": DEFAULT_PACKAGE_NAME,
+        "simulator_host": SIMULATOR_HOST,
+        "simulator_port": SIMULATOR_PORT,
+        "server_port": SERVER_PORT
+    }
 
 
 # ==================== 시뮬레이터 API ====================
@@ -319,22 +444,49 @@ def open_browser():
     webbrowser.open(f'http://localhost:{SERVER_PORT}')
 
 if __name__ == "__main__":
-    print(f"""
+    # 시작 전 포트 정리 (이전 실행이 비정상 종료된 경우 대비)
+    safe_print("Cleaning up port...")
+    cleanup_port(SERVER_PORT)
+    time.sleep(0.5)  # 포트 해제 대기
+    
+    # 시작 배너 출력 (콘솔이 있는 경우만)
+    try:
+        safe_print(f"""
 ╔══════════════════════════════════════════════════════════╗
-║  VR 추락 시뮬레이터 컨트롤러                             ║
-║  웹 인터페이스: http://localhost:{SERVER_PORT}                    ║
-║  테스트 모드: {'활성화' if TEST_MODE else '비활성화'}                                     ║
+║  VR Fall Simulator Controller                           ║
+║  Web Interface: http://localhost:{SERVER_PORT}                    ║
+║  Test Mode: {'Enabled' if TEST_MODE else 'Disabled'}                                        ║
 ╚══════════════════════════════════════════════════════════╝
     """)
+    except (UnicodeEncodeError, OSError):
+        # PyInstaller 윈도우 모드에서는 콘솔 출력 무시
+        pass
     
     # 브라우저 자동 실행 (별도 스레드)
     threading.Thread(target=open_browser, daemon=True).start()
     
-    # WebSocket 서버는 별도 포트에서 실행
-    uvicorn.run(
-        app,
-        host=SERVER_HOST,
-        port=SERVER_PORT,
-        log_level="info"
+    # uvicorn 로깅 설정 (UTF-8 지원)
+    import logging
+    logging.basicConfig(
+        format='%(levelname)s: %(message)s',
+        level=logging.INFO,
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
     )
+    
+    # WebSocket 서버 실행
+    try:
+        uvicorn.run(
+            app,
+            host=SERVER_HOST,
+            port=SERVER_PORT,
+            log_level="info",
+            access_log=False  # 한글 에러 방지를 위해 액세스 로그 비활성화
+        )
+    except Exception as e:
+        safe_print(f"Server start error: {e}")
+    finally:
+        # 종료 시 포트 정리
+        cleanup_port(SERVER_PORT)
 

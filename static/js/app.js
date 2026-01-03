@@ -7,6 +7,7 @@ let selectedDevices = new Set();
 document.addEventListener('DOMContentLoaded', () => {
     connectWebSocket();
     checkTestMode();
+    loadConfig();  // 설정 로드 추가
     log('info', '웹 인터페이스 초기화 완료');
 });
 
@@ -408,6 +409,27 @@ async function checkTestMode() {
     const result = await apiRequest('test_mode');
     if (result && result.enabled) {
         updateTestMode(true);
+    }
+}
+
+// 설정 로드
+async function loadConfig() {
+    const result = await apiRequest('config');
+    if (result) {
+        // 패키지 이름 설정
+        if (result.package_name) {
+            document.getElementById('packageName').value = result.package_name;
+        }
+
+        // 시뮬레이터 IP/포트 설정
+        if (result.simulator_host) {
+            document.getElementById('simulatorIp').value = result.simulator_host;
+        }
+        if (result.simulator_port) {
+            document.getElementById('simulatorPort').value = result.simulator_port;
+        }
+
+        log('success', '설정 로드 완료');
     }
 }
 
