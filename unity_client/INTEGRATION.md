@@ -21,7 +21,7 @@ Unity VR 앱은 PC 컨트롤러와 **TCP 소켓**으로 통신합니다.
 ### 통신 구조
 
 ```
-PC 컨트롤러 (192.168.1.100:9100)
+PC 컨트롤러 (192.168.0.100:9100)
         ↕ TCP
 Unity VR 앱 (피코4)
         ↕
@@ -83,7 +83,7 @@ Scene
 
 | 필드 | 값 | 설명 |
 |------|-----|------|
-| **Server IP** | `192.168.1.100` | PC 컨트롤러 IP |
+| **Server IP** | `192.168.0.100` | PC 컨트롤러 IP |
 | **Server Port** | `9100` | 통신 포트 |
 | **Auto Reconnect** | ✅ | 자동 재연결 활성화 |
 | **Reconnect Interval** | `5` | 재연결 시도 간격 (초) |
@@ -282,7 +282,7 @@ manager.StopExperience();
 
 **예상 로그:**
 ```
-[VRController] 연결 시도: 192.168.1.100:9100
+[VRController] 연결 시도: 192.168.0.100:9100
 [VRController] 연결 성공!
 [VRController] 명령 수신: PLAY
 [ExperienceManager] 체험 시작
@@ -400,7 +400,7 @@ public void OnNotification(Playable origin, INotification notification, object c
 - [ ] 3개 스크립트 파일을 Unity 프로젝트에 복사
 - [ ] VRControllerManager GameObject와 컴포넌트 추가
 - [ ] ExperienceManager GameObject와 컴포넌트 추가
-- [ ] VRControllerClient에 PC IP 설정 (192.168.1.100)
+- [ ] VRControllerClient에 PC IP 설정 (192.168.0.100)
 - [ ] VRSafetyExperienceManager에 Timeline 참조 연결
 - [ ] 피코4 #1만 Auto Mode + Primary 체크
 - [ ] Unity 에디터에서 연결 테스트 성공

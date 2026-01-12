@@ -91,16 +91,24 @@ def cleanup_port(port=8000):
 
 
 def signal_handler(signum, frame):
-    """시그널 핸들러"""
+    """시그널 핸들러 - 프로세스 완전 종료"""
     safe_print("\nShutting down...")
     cleanup_port(SERVER_PORT)
-    sys.exit(0)
+    # 프로세스 강제 종료 (확실한 종료 보장)
+    os._exit(0)
 
 
 # 프로그램 종료 시 자동으로 포트 정리
 atexit.register(cleanup_port, SERVER_PORT)
 signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
 signal.signal(signal.SIGTERM, signal_handler)  # 종료 시그널
+
+# Windows에서 추가 시그널 처리
+if sys.platform == 'win32':
+    try:
+        signal.signal(signal.SIGBREAK, signal_handler)  # Ctrl+Break
+    except AttributeError:
+        pass  # SIGBREAK가 없는 경우 무시
 
 
 def get_base_path():
@@ -484,9 +492,15 @@ if __name__ == "__main__":
             log_level="info",
             access_log=False  # 한글 에러 방지를 위해 액세스 로그 비활성화
         )
+    except KeyboardInterrupt:
+        # Ctrl+C로 종료
+        safe_print("\nServer stopped by user")
     except Exception as e:
         safe_print(f"Server start error: {e}")
     finally:
-        # 종료 시 포트 정리
+        # 종료 시 포트 정리 및 프로세스 완전 종료
+        safe_print("Cleaning up and exiting...")
         cleanup_port(SERVER_PORT)
+        # 프로세스 강제 종료
+        os._exit(0)
 

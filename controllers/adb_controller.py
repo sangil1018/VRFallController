@@ -4,9 +4,11 @@ ADB 컨트롤러
 """
 import asyncio
 import subprocess
+import shutil
+from pathlib import Path
 from typing import List, Dict, Union
 from utils.logger import Logger
-from config import ADB_PATH, DEFAULT_PICO_IPS, TEST_MODE
+from config import ADB_PATH, DEFAULT_PICO_IPS, TEST_MODE, EXE_DIR
 
 
 class ADBController:
@@ -14,6 +16,11 @@ class ADBController:
         self.logger = logger
         self.devices: List[Dict[str, str]] = []
         self.default_ips = DEFAULT_PICO_IPS.copy()
+        self.first_scan_done = False  # 첫 스캔 여부 추적
+        
+        # 일반 모드에서 배치 파일 복사
+        if not TEST_MODE:
+            self.copy_batch_file_to_exe()
     
     async def run_adb_command(self, command: List[str], device_ip: str = None) -> tuple[bool, str]:
         """ADB 명령 실행"""
@@ -38,11 +45,14 @@ class ADBController:
                 else:
                     return True, "OK"
             
-            # 실제 ADB 명령 실행
+            # 실제 ADB 명령 실행 (CMD 창 숨김)
+            creationflags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                creationflags=creationflags
             )
             
             stdout, stderr = await process.communicate()
@@ -58,10 +68,73 @@ class ADBController:
             self.logger.error(f"ADB 명령 실행 오류: {str(e)}")
             return False, str(e)
     
+    def copy_batch_file_to_exe(self):
+        """배치 파일들을 exe 디렉토리에 복사"""
+        try:
+            batch_files = [
+                "adb_connect_all.bat",      # 네트워크 연결용
+                "adb_tcpip_open.bat"        # USB로 TCPIP 포트 열기용 (초기 설정)
+            ]
+            
+            for bat_file in batch_files:
+                # 소스 파일 경로 (controllers 폴더 내)
+                source_bat = Path(__file__).parent / bat_file
+                # 목적지 경로 (exe 디렉토리)
+                dest_bat = EXE_DIR / bat_file
+                
+                # 소스 파일이 존재하고, 목적지에 없으면 복사
+                if source_bat.exists() and not dest_bat.exists():
+                    shutil.copy2(source_bat, dest_bat)
+                    self.logger.info(f"배치 파일 복사됨: {dest_bat}")
+                elif dest_bat.exists():
+                    self.logger.info(f"배치 파일이 이미 존재함: {dest_bat}")
+        except Exception as e:
+            self.logger.error(f"배치 파일 복사 오류: {str(e)}")
+    
+    async def execute_adb_connect_batch(self):
+        """adb_connect_all.bat 실행 (일반 모드 첫 스캔시에만)"""
+        try:
+            bat_path = EXE_DIR / "adb_connect_all.bat"
+            
+            if not bat_path.exists():
+                self.logger.warning(f"배치 파일을 찾을 수 없습니다: {bat_path}")
+                return False
+            
+            self.logger.info("ADB 연결 배치 파일 실행 중...")
+            
+            # 배치 파일 실행 (백그라운드에서)
+            process = await asyncio.create_subprocess_exec(
+                str(bat_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            )
+            
+            # 배치 파일 완료 대기 (최대 10초)
+            try:
+                await asyncio.wait_for(process.communicate(), timeout=10.0)
+                self.logger.success("ADB 연결 배치 파일 실행 완료")
+                # 연결 안정화를 위해 잠시 대기
+                await asyncio.sleep(1.0)
+                return True
+            except asyncio.TimeoutError:
+                self.logger.warning("배치 파일 실행 시간 초과 (백그라운드 계속 실행 중)")
+                return True  # 백그라운드로 계속 실행되므로 성공으로 간주
+                
+        except Exception as e:
+            self.logger.error(f"배치 파일 실행 오류: {str(e)}")
+            return False
+    
     async def scan_devices(self) -> List[Dict[str, str]]:
         """피코 디바이스 스캔"""
         try:
             self.logger.info("피코 디바이스 스캔 중...")
+            
+            # 일반 모드에서 첫 스캔일 때만 배치 파일 실행
+            if not TEST_MODE and not self.first_scan_done:
+                self.logger.info("첫 스캔: ADB 연결 배치 파일 실행")
+                await self.execute_adb_connect_batch()
+                self.first_scan_done = True
             
             # ADB devices 명령 실행
             success, output = await self.run_adb_command(["devices"])
@@ -81,18 +154,16 @@ class ADBController:
                         "status": status
                     })
             
-            # 기본 IP도 추가 (연결 안된 경우)
-            for ip in self.default_ips:
-                if not any(d["ip"] == ip for d in devices):
-                    # 네트워크 연결 시도
-                    if not TEST_MODE:
-                        await self.run_adb_command(["connect", ip])
-                        await asyncio.sleep(0.5)
-                    
-                    devices.append({
-                        "ip": ip,
-                        "status": "연결 시도 중" if not TEST_MODE else "device"
-                    })
+            # 테스트 모드에서만 기본 IP 추가
+            if TEST_MODE:
+                for ip in self.default_ips:
+                    if not any(d["ip"] == ip for d in devices):
+                        devices.append({
+                            "ip": ip,
+                            "status": "device"
+                        })
+            
+            # 일반 모드에서는 스캔된 디바이스만 표시 (기본 IP 추가 안함)
             
             self.devices = devices
             self.logger.success(f"{len(devices)}개 디바이스 발견됨")

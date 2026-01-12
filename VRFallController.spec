@@ -11,6 +11,7 @@ a = Analysis(
         ('controllers', 'controllers'), # 컨트롤러 모듈
         ('utils', 'utils'),            # 유틸리티 모듈
         ('config.py', '.'),            # 설정 파일
+        ('platform-tools', 'platform-tools'),  # ADB 도구
     ],
     hiddenimports=[
         'uvicorn.logging',

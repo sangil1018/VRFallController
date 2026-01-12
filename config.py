@@ -35,11 +35,11 @@ def create_default_config() -> configparser.ConfigParser:
     }
     
     config['Devices'] = {
-        'pico_ips': '192.168.1.101,192.168.1.102,192.168.1.103'
+        'pico_ips': '192.168.0.101,192.168.0.102,192.168.0.103'
     }
     
     config['Simulator'] = {
-        'host': '192.168.1.200',
+        'host': '192.168.0.200',
         'port': '9000'
     }
     
@@ -86,8 +86,17 @@ def save_config(config: configparser.ConfigParser = None):
 # 설정 로드
 _config = load_config()
 
-# 테스트 모드 설정
-TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+# 테스트 모드 설정 (환경 변수 또는 커맨드 라인 인수)
+# 우선순위: 1. 커맨드 라인 인수, 2. 환경 변수
+def is_test_mode() -> bool:
+    """테스트 모드 확인 (커맨드 라인 인수 또는 환경 변수)"""
+    # 커맨드 라인 인수 확인
+    if '-testmode' in sys.argv or '--testmode' in sys.argv:
+        return True
+    # 환경 변수 확인
+    return os.getenv("TEST_MODE", "false").lower() == "true"
+
+TEST_MODE = is_test_mode()
 
 # 네트워크 설정
 SERVER_HOST = _config.get('Server', 'host', fallback='0.0.0.0')
@@ -95,16 +104,36 @@ SERVER_PORT = _config.getint('Server', 'port', fallback=8000)
 WEBSOCKET_PORT = _config.getint('Server', 'websocket_port', fallback=8001)
 UNITY_SERVER_PORT = _config.getint('Server', 'unity_server_port', fallback=9100)
 
-# 피코 디바이스 IP 리스트
-pico_ips_str = _config.get('Devices', 'pico_ips', fallback='192.168.1.101,192.168.1.102,192.168.1.103')
-DEFAULT_PICO_IPS: List[str] = [ip.strip() for ip in pico_ips_str.split(',') if ip.strip()]
+# 피코 디바이스 IP 리스트 (테스트 모드에서만 사용)
+if TEST_MODE:
+    pico_ips_str = _config.get('Devices', 'pico_ips', fallback='192.168.1.101,192.168.1.102,192.168.1.103')
+    DEFAULT_PICO_IPS: List[str] = [ip.strip() for ip in pico_ips_str.split(',') if ip.strip()]
+else:
+    # 일반 모드에서는 config에서 IP를 읽지 않음 (스캔을 통해서만 디바이스 검색)
+    DEFAULT_PICO_IPS: List[str] = []
 
 # 시뮬레이터 설정
 SIMULATOR_HOST = _config.get('Simulator', 'host', fallback='192.168.1.200')
 SIMULATOR_PORT = _config.getint('Simulator', 'port', fallback=9000)
 
 # ADB 설정
-ADB_PATH = _config.get('ADB', 'path', fallback=r'C:\platform-tools\adb.exe')
+def get_adb_path() -> str:
+    """ADB 경로 반환 (프로젝트 내부 우선)"""
+    # 1순위: 프로젝트 내부 platform-tools
+    local_adb = EXE_DIR / "platform-tools" / "adb.exe"
+    if local_adb.exists():
+        return str(local_adb)
+    
+    # 2순위: config.ini 설정값
+    config_adb = _config.get('ADB', 'path', fallback='')
+    if config_adb and Path(config_adb).exists():
+        return config_adb
+    
+    # 3순위: 시스템 PATH에서 찾기
+    # (ADB가 PATH에 있으면 'adb.exe'만으로 실행 가능)
+    return 'adb.exe'
+
+ADB_PATH = get_adb_path()
 
 # 기본 APK 패키지 이름
 DEFAULT_PACKAGE_NAME = _config.get('APK', 'package_name', fallback='com.safety.vrfall')
@@ -115,22 +144,27 @@ MAX_LOG_LINES = _config.getint('Logging', 'max_log_lines', fallback=1000)
 
 # UI 테마 색상
 THEME = {
-    "primary": "#6366f1",      # Indigo
-    "success": "#10b981",      # Green
-    "warning": "#f59e0b",      # Amber
-    "danger": "#ef4444",       # Red
-    "info": "#3b82f6",         # Blue
-    "dark": "#0f172a",         # Slate 900
-    "darker": "#020617",       # Slate 950
+    "primary": "#2563EB",      # Bright Blue (밝은 파란색)
+    "accent": "#FBBF24",       # Bright Yellow (밝은 노란색)
+    "success": "#10B981",      # Green (그린)
+    "warning": "#FBBF24",      # Bright Yellow (노란색)
+    "danger": "#EF4444",       # Red (빨간색)
+    "info": "#3B82F6",         # Blue (파란색)
+    "dark": "#1E293B",         # Slate 800 (밝은 다크그레이)
+    "darker": "#0F172A",       # Slate 900 (다크그레이)
 }
 
 
 def update_pico_ips(ips: List[str]):
-    """Pico IP 리스트 업데이트 및 저장"""
-    _config.set('Devices', 'pico_ips', ','.join(ips))
-    save_config()
-    global DEFAULT_PICO_IPS
-    DEFAULT_PICO_IPS = ips
+    """Pico IP 리스트 업데이트 및 저장 (테스트 모드에서만)"""
+    # 일반 모드에서는 IP를 config에 저장하지 않음
+    # 테스트 모드에서만 저장된 IP를 사용
+    if TEST_MODE:
+        _config.set('Devices', 'pico_ips', ','.join(ips))
+        save_config()
+        global DEFAULT_PICO_IPS
+        DEFAULT_PICO_IPS = ips
+    # 일반 모드에서는 스캔된 디바이스만 사용하므로 저장하지 않음
 
 
 def update_simulator_host(host: str):
